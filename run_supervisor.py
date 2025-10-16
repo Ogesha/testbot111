@@ -24,6 +24,15 @@ async def main():
     manager = MainBotManager(cfg)
     await manager.ensure_infra()
 
+    # После перезапуска supervisor автоматически поднимаем основной бот,
+    # чтобы пользователям не приходилось делать это вручную из контрольного
+    # бота. Ранее после рестарта supervisor основной бот оставался в
+    # состоянии "остановлен", из-за чего не работали рассылки, планировщик
+    # и каталог оставался пустым.
+    if not manager.status()["running"]:
+        await manager.start()
+        logger.info("Основной бот автоматически запущен supervisor'ом")
+
     # Контрольный бот (только для указанных CONTROL_ADMINS)
     if not cfg.control_bot_token or not cfg.control_admin_ids:
         raise RuntimeError("CONTROL_BOT_TOKEN / CONTROL_ADMINS не заданы в .env")
@@ -43,6 +52,11 @@ async def main():
     try:
         await dp.start_polling(control_bot)
     finally:
+        try:
+            if manager.status()["running"]:
+                await manager.stop()
+        except Exception:
+            logger.exception("Не удалось корректно остановить основной бот при завершении supervisor")
         await control_bot.session.close()
 
 
