@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -11,7 +11,6 @@ from app.dynamic_products import (
     fetch_products_for_category,
     fetch_category_title,
     fetch_product,
-    get_catalog_storage_dir,
 )
 from .keyboards import (
     consent_kb,
@@ -149,19 +148,11 @@ async def shop_show_product(c: CallbackQuery, session: AsyncSession):
     caption = "\n".join(text_parts)
     keyboard = product_detail_kb(slug, product)
 
-    storage_dir = get_catalog_storage_dir()
-    image_path = product.get("image_path")
-    photo_input = None
-    if image_path:
-        local_file = storage_dir / image_path
-        if local_file.is_file():
-            photo_input = FSInputFile(local_file)
+    image_url = product.get("image_url")
 
-    if photo_input:
-        await c.message.answer_photo(photo_input, caption=caption, reply_markup=keyboard)
-    elif product.get("image_url"):
+    if image_url:
         await c.message.answer_photo(
-            product["image_url"],
+            image_url,
             caption=caption,
             reply_markup=keyboard,
         )

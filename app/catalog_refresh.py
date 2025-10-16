@@ -5,6 +5,7 @@ from typing import Tuple
 from .scraper import scrape_products_multi
 from .categorizer import pick_category_name
 from .dynamic_products import replace_all_categories_and_products
+from .db import get_sessionmaker
 from .config import AppConfig
 
 
@@ -38,6 +39,8 @@ async def refresh_catalog(cfg: AppConfig) -> Tuple[int, int]:
     total_items = sum(len(v) for v in categorized.values())
     total_cats = len(categorized)
 
-    await replace_all_categories_and_products(None, categorized)
+    Session = get_sessionmaker()
+    async with Session() as session:
+        await replace_all_categories_and_products(session, categorized)
 
     return total_cats, total_items
