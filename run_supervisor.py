@@ -1,0 +1,50 @@
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
+
+
+from app.config import load_config
+from app.db import init_engine, get_sessionmaker
+from app.mainbot_runtime import MainBotManager
+from control_bot.handlers import init_control_router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+async def main():
+    cfg = load_config()
+
+    # Инициализируем движок/Session один раз
+    engine, Session = init_engine(cfg.database_url)
+
+    # Менеджер основного бота (создание таблиц/миграции/админы)
+    manager = MainBotManager(cfg)
+    await manager.ensure_infra()
+
+    # Контрольный бот (только для указанных CONTROL_ADMINS)
+    if not cfg.control_bot_token or not cfg.control_admin_ids:
+        raise RuntimeError("CONTROL_BOT_TOKEN / CONTROL_ADMINS не заданы в .env")
+
+    control_bot = Bot(
+        cfg.control_bot_token,
+        default=DefaultBotProperties(parse_mode="HTML"),
+    )
+    dp = Dispatcher(storage=MemoryStorage())
+
+    allowed_ids = set(cfg.control_admin_ids)
+    dp.include_router(
+        init_control_router(manager, allowed_ids, Session)  # <-- третий аргумент: session_maker
+    )
+
+    logger.info("Supervisor запущен. Используйте контрольного бота для управления основным.")
+    try:
+        await dp.start_polling(control_bot)
+    finally:
+        await control_bot.session.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
