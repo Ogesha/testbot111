@@ -165,15 +165,17 @@ class MainBotManager:
             return "Основной бот уже запущен."
         if self._Session is None:
             await self.ensure_infra()
-        self._started_event = asyncio.Event()
+        start_event = asyncio.Event()
+        self._started_event = start_event
         self._task = asyncio.create_task(self._run_polling(), name="mainbot-polling")
         try:
-            await asyncio.wait_for(self._started_event.wait(), timeout=10)
+            await asyncio.wait_for(start_event.wait(), timeout=10)
         except asyncio.TimeoutError:
             logger.warning("Основной бот не подтвердил запуск за 10 секунд")
-        if self._task.done():
-            exc = self._task.exception()
+        finally:
             self._started_event = None
+        if self._task and self._task.done():
+            exc = self._task.exception()
             if exc:
                 self._task = None
                 self._is_running = False
@@ -208,6 +210,11 @@ class MainBotManager:
 
     def status(self) -> dict:
         """Возвращает текущее состояние бота."""
-        running = bool(self._task and not self._task.done() and self._is_running)
-        uptime = int(time.time() - self._started_at) if running and self._started_at else None
+        running = bool(self._task and not self._task.done())
+        if self._is_running:
+            running = True
+        if not running:
+            uptime = None
+        else:
+            uptime = int(time.time() - self._started_at) if self._started_at else None
         return {"running": running, "uptime_sec": uptime}
