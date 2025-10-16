@@ -31,6 +31,8 @@ class MainBotManager:
         self._dp: Dispatcher | None = None
         self._scheduler = None
         self._started_at: float | None = None
+        self._is_running: bool = False
+        self._started_event: asyncio.Event | None = None
 
     async def ensure_infra(self):
         """
@@ -117,6 +119,9 @@ class MainBotManager:
         self._scheduler = setup_scheduler(self.cfg, self._bot)
         self._scheduler.start()
         self._started_at = time.time()
+        self._is_running = True
+        if self._started_event and not self._started_event.is_set():
+            self._started_event.set()
 
         # Уведомления админам
         notifier = ControlNotifier(self.cfg.control_bot_token, self.cfg.control_admin_ids)
@@ -136,6 +141,9 @@ class MainBotManager:
             raise
         finally:
             self._started_at = None
+            self._is_running = False
+            if self._started_event and not self._started_event.is_set():
+                self._started_event.set()
             try:
                 if self._scheduler:
                     self._scheduler.shutdown(wait=False)
@@ -157,8 +165,19 @@ class MainBotManager:
             return "Основной бот уже запущен."
         if self._Session is None:
             await self.ensure_infra()
+        self._started_event = asyncio.Event()
         self._task = asyncio.create_task(self._run_polling(), name="mainbot-polling")
-        await asyncio.sleep(0.5)
+        try:
+            await asyncio.wait_for(self._started_event.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Основной бот не подтвердил запуск за 10 секунд")
+        if self._task.done():
+            exc = self._task.exception()
+            self._started_event = None
+            if exc:
+                self._task = None
+                self._is_running = False
+                raise exc
         return "Основной бот запущен."
 
     async def stop(self) -> str:
@@ -178,6 +197,8 @@ class MainBotManager:
             self._bot = None
             self._scheduler = None
             self._started_at = None
+            self._is_running = False
+            self._started_event = None
         return "Основной бот остановлен."
 
     async def restart(self) -> str:
@@ -187,6 +208,6 @@ class MainBotManager:
 
     def status(self) -> dict:
         """Возвращает текущее состояние бота."""
-        running = bool(self._task and not self._task.done())
+        running = bool(self._task and not self._task.done() and self._is_running)
         uptime = int(time.time() - self._started_at) if running and self._started_at else None
         return {"running": running, "uptime_sec": uptime}

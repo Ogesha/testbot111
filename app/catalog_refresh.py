@@ -11,8 +11,10 @@ from .config import AppConfig
 
 async def refresh_catalog(cfg: AppConfig) -> Tuple[int, int]:
     """Собирает каталог с сайта и полностью обновляет товарные таблицы."""
+    sources = [(src.url, src.category) for src in cfg.scrape.sources]
+
     items = scrape_products_multi(
-        cfg.scrape.urls,
+        sources,
         {
             "card": cfg.scrape.selectors.card,
             "title": cfg.scrape.selectors.title,
@@ -23,9 +25,16 @@ async def refresh_catalog(cfg: AppConfig) -> Tuple[int, int]:
     )
 
     categorized: dict[str, list[dict]] = {}
+    for _, cat_title in sources:
+        if cat_title:
+            categorized.setdefault(cat_title, [])
+
     for it in items:
-        cat_name = pick_category_name(it["title"], cfg.categories) or "Прочее"
+        cat_name = it.get("category") or pick_category_name(it["title"], cfg.categories) or "Прочее"
         categorized.setdefault(cat_name, []).append(it)
+
+    # Удаляем категории без товаров
+    categorized = {k: v for k, v in categorized.items() if v}
 
     total_items = sum(len(v) for v in categorized.values())
     total_cats = len(categorized)

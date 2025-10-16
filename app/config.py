@@ -14,10 +14,21 @@ class SelectorSet:
     image: List[str] | None = None
 
 @dataclass
+class ScrapeSource:
+    url: str
+    category: str | None = None
+
+
+@dataclass
 class ScrapeConfig:
-    urls: list[str]
+    sources: list[ScrapeSource]
     daily_time: str
     selectors: SelectorSet
+
+    @property
+    def urls(self) -> list[str]:
+        """Сохраняем обратную совместимость для старых вызовов."""
+        return [src.url for src in self.sources]
 
 @dataclass
 class CategoryConf:
@@ -57,9 +68,22 @@ def load_config(yaml_path: str = "config.yaml") -> AppConfig:
     if not control_bot_token or not control_admin_ids:
         print("[WARN] CONTROL_BOT_TOKEN / CONTROL_ADMINS не заданы — контрольный бот работать не будет.")
 
+    raw_sources = y["scrape"].get("urls", [])
+    sources: list[ScrapeSource] = []
+    for item in raw_sources:
+        if isinstance(item, str):
+            sources.append(ScrapeSource(url=item))
+        elif isinstance(item, dict):
+            url = item.get("url")
+            if not url:
+                raise ValueError("scrape.urls mapping must contain 'url'")
+            sources.append(ScrapeSource(url=url, category=item.get("category")))
+        else:
+            raise ValueError("scrape.urls items must be string or mapping with 'url'")
+
     return AppConfig(
         scrape=ScrapeConfig(
-            urls=y["scrape"]["urls"],
+            sources=sources,
             daily_time=y["scrape"]["daily_time"],
             selectors=SelectorSet(**y["scrape"]["selectors"])
         ),

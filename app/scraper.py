@@ -76,11 +76,16 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
         })
     return products
 
-def scrape_products_multi(urls: list[str], selectors: dict) -> List[Dict]:
+def scrape_products_multi(sources: list[tuple[str, str | None]], selectors: dict) -> List[Dict]:
     out: List[Dict] = []
-    for u in urls:
+    for url, category in sources:
         try:
-            out.extend(scrape_products(u, selectors))
+            products = scrape_products(url, selectors)
         except Exception:
             pass
+        else:
+            if category:
+                for p in products:
+                    p.setdefault("category", category)
+            out.extend(products)
     return out
