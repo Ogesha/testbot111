@@ -1,0 +1,25 @@
+scrape:
+  urls:
+    - "https://horizont.garant.by/"
+  daily_time: "09:30"
+  selectors:
+    card: ["div.product", "div.product-card", "li.product"]
+    title: [".product-title", "a.title", "h2", "h3"]
+    price: [".price", ".product-price", ".amount"]
+    link_from_title: true
+    image: [".product-card img", ".catalog-products__item img", "img"]
+
+# Категории и ключи для автокатегоризации
+categories:
+  - name: "Телевизоры"
+    keywords: ["телевизор", "tv", "smart tv", "ultra hd", "oled", "lcd"]
+  - name: "Холодильники"
+    keywords: ["холодильник", "frost", "морозиль", "freezer", "fridge"]
+  - name: "Стиральные машины"
+    keywords: ["стиральн", "washer", "washing"]
+  - name: "Микроволновки"
+    keywords: ["микроволнов", "микроволновая", "печь", "свч", "microwave"]
+
+broadcast:
+  autosend_daily_time: null
+  message_template: "Каталог обновлён: {count} товаров"
