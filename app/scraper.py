@@ -1,0 +1,53 @@
+from typing import List, Dict
+import requests
+from bs4 import BeautifulSoup
+
+def _first_match(el, selectors: list[str]):
+    for css in selectors:
+        found = el.select_one(css)
+        if found:
+            return found
+    return None
+
+def scrape_products(url: str, selectors: dict) -> List[Dict]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; TGShopBot/1.0; +https://example.com/bot)"
+    }
+    r = requests.get(url, headers=headers, timeout=20)
+    r.raise_for_status()
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    products = []
+    cards = []
+    for css in selectors["card"]:
+        cards.extend(soup.select(css))
+    seen = set()
+    for c in cards:
+        title_el = _first_match(c, selectors["title"])
+        price_el = _first_match(c, selectors["price"])
+        if not title_el:
+            continue
+        title = title_el.get_text(strip=True)
+        if not title or title in seen:
+            continue
+        seen.add(title)
+        price = price_el.get_text(strip=True) if price_el else ""
+        link = None
+        if selectors.get("link_from_title", True):
+            if title_el.name == "a" and title_el.get("href"):
+                link = title_el["href"]
+            else:
+                a = title_el.find("a")
+                if a and a.get("href"):
+                    link = a["href"]
+        products.append({"title": title, "price": price, "url": link})
+    return products
+
+def scrape_products_multi(urls: list[str], selectors: dict) -> List[Dict]:
+    out: List[Dict] = []
+    for u in urls:
+        try:
+            out.extend(scrape_products(u, selectors))
+        except Exception:
+            pass
+    return out
