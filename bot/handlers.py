@@ -6,9 +6,21 @@ from sqlalchemy import select, update
 
 from app.models import User
 from app.repositories import get_or_create_user, log_message
-from app.dynamic_products import fetch_categories_with_counts, fetch_products_for_category
+from app.dynamic_products import (
+    fetch_categories_with_counts,
+    fetch_products_for_category,
+    fetch_category_title,
+    fetch_product,
+)
 from .keyboards import (
-    consent_kb, main_menu_kb, support_menu_kb, tv_menu_kb, net_menu_kb
+    consent_kb,
+    main_menu_kb,
+    support_menu_kb,
+    tv_menu_kb,
+    net_menu_kb,
+    shop_categories_kb,
+    shop_products_kb,
+    product_detail_kb,
 )
 
 router = Router()
@@ -51,33 +63,101 @@ async def go_home(m: Message):
 async def support_root(m: Message):
     await m.answer("Выберите направление:", reply_markup=support_menu_kb())
 
-@router.message(F.text == "🛍 Магазин")
-async def shop_entry(m: Message, session: AsyncSession):
+async def _send_categories(message: Message | CallbackQuery, session: AsyncSession):
     cats = await fetch_categories_with_counts(session)
     if not cats:
-        await m.answer("Категории пока не загружены. Попробуйте позже.", reply_markup=main_menu_kb())
-        return
-    lines = [f"• {slug} — {cnt} шт." for slug, cnt in cats]
-    await m.answer("Категории магазина:\n" + "\n".join(lines))
-    await m.answer("Чтобы посмотреть товары категории, введите ее слаг, например: products_televizory\n\n"
-                   "⚠️ При желании можно вернуть инлайн-кнопки.", reply_markup=main_menu_kb())
+        text = "Категории пока не загружены. Попробуйте позже."
+        if isinstance(message, CallbackQuery):
+            await message.message.edit_text(text)
+            await message.answer()
+        else:
+            await message.answer(text, reply_markup=main_menu_kb())
+        return False
 
-@router.message(F.text.regexp(r"^products_[\wа-яё_]+$"))
-async def shop_show_category(m: Message, session: AsyncSession):
-    slug = m.text.removeprefix("products_")
+    keyboard = shop_categories_kb(cats)
+    text = "Выберите категорию магазина:"
+    if isinstance(message, CallbackQuery):
+        await message.message.edit_text(text, reply_markup=keyboard)
+        await message.answer()
+    else:
+        await message.answer(text, reply_markup=keyboard)
+    return True
+
+
+@router.message(F.text == "🛍 Магазин")
+async def shop_entry(m: Message, session: AsyncSession):
+    await _send_categories(m, session)
+
+
+@router.callback_query(F.data == "shop:cats")
+async def shop_categories_callback(c: CallbackQuery, session: AsyncSession):
+    await _send_categories(c, session)
+
+
+@router.callback_query(F.data == "shop:menu")
+async def shop_menu_callback(c: CallbackQuery):
+    await c.message.delete()
+    await c.message.answer("Главное меню:", reply_markup=main_menu_kb())
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("shop:cat:"))
+async def shop_show_category(c: CallbackQuery, session: AsyncSession):
+    slug = c.data.split(":", 2)[2]
+    title = await fetch_category_title(session, slug)
+    if not title:
+        await c.answer("Категория не найдена", show_alert=True)
+        return
+
     items = await fetch_products_for_category(session, slug, limit=20)
     if not items:
-        await m.answer("В этой категории пока пусто.", reply_markup=main_menu_kb())
+        await c.message.edit_text(
+            f"Категория «{title}» пока пуста.",
+            reply_markup=shop_products_kb(slug, []),
+        )
+        await c.answer()
         return
-    lines = []
-    for it in items:
-        line = f"• <b>{it['title']}</b>"
-        if it.get("price"):
-            line += f" — {it['price']}"
-        if it.get("url"):
-            line += f"\n{it['url']}"
-        lines.append(line)
-    await m.answer("Товары:\n\n" + "\n\n".join(lines), disable_web_page_preview=True, reply_markup=main_menu_kb())
+
+    keyboard = shop_products_kb(slug, items)
+    await c.message.edit_text(
+        f"Категория «{title}». Выберите товар:",
+        reply_markup=keyboard,
+    )
+    await c.answer()
+
+
+@router.callback_query(F.data.startswith("shop:prod:"))
+async def shop_show_product(c: CallbackQuery, session: AsyncSession):
+    try:
+        _, _, slug, prod_id = c.data.split(":", 3)
+        product_id = int(prod_id)
+    except ValueError:
+        await c.answer("Некорректный запрос", show_alert=True)
+        return
+
+    product = await fetch_product(session, slug, product_id)
+    if not product:
+        await c.answer("Товар не найден", show_alert=True)
+        return
+
+    text_parts = [f"<b>{product['title']}</b>"]
+    if product.get("price"):
+        text_parts.append(f"Цена: {product['price']}")
+    if product.get("url"):
+        text_parts.append(product["url"])
+    caption = "\n".join(text_parts)
+    keyboard = product_detail_kb(slug, product)
+
+    if product.get("image_url"):
+        await c.message.answer_photo(
+            product["image_url"],
+            caption=caption,
+            reply_markup=keyboard,
+        )
+    else:
+        await c.message.answer(caption, reply_markup=keyboard)
+
+    await c.answer()
 
 # ====== Техподдержка: телевидение ======
 @router.message(F.text == "📺 Проблемы с телевидением")

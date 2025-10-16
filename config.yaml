@@ -7,6 +7,7 @@ scrape:
     title: [".product-title", "a.title", "h2", "h3"]
     price: [".price", ".product-price", ".amount"]
     link_from_title: true
+    image: [".product-card img", ".catalog-products__item img", "img"]
 
 # Категории и ключи для автокатегоризации
 categories:

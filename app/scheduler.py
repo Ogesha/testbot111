@@ -1,14 +1,10 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from zoneinfo import ZoneInfo
 from aiogram import Bot
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from .scraper import scrape_products_multi
-from .categorizer import pick_category_name
-from .dynamic_products import replace_all_categories_and_products
-from .db import get_sessionmaker
 from .config import AppConfig
 from .notifier import ControlNotifier
+from .catalog_refresh import refresh_catalog
 
 
 def _parse_hhmm(s: str) -> tuple[int, int]:
@@ -55,30 +51,9 @@ async def _daily_scrape_full_replace(cfg: AppConfig):
       - ПОЛНОСТЬЮ заменяем товарные таблицы (по 1 таблице на категорию)
       - отправляем отчёт в контрольный бот (только админам)
     """
-    Session = get_sessionmaker()
     notifier = ControlNotifier(cfg.control_bot_token, cfg.control_admin_ids)
     try:
-        items = scrape_products_multi(
-            cfg.scrape.urls,
-            {
-                "card": cfg.scrape.selectors.card,
-                "title": cfg.scrape.selectors.title,
-                "price": cfg.scrape.selectors.price,
-                "link_from_title": cfg.scrape.selectors.link_from_title,
-            },
-        )
-
-        categorized: dict[str, list[dict]] = {}
-        for it in items:
-            cat_name = pick_category_name(it["title"], cfg.categories) or "Прочее"
-            categorized.setdefault(cat_name, []).append(it)
-
-        total_items = sum(len(v) for v in categorized.values())
-        total_cats = len(categorized)
-
-        async with Session() as s:  # type: AsyncSession
-            await replace_all_categories_and_products(s, categorized)
-
+        total_cats, total_items = await refresh_catalog(cfg)
         await notifier.send(
             f"✅ Парсинг завершён: категорий {total_cats}, товаров {total_items}. Каталог обновлён."
         )

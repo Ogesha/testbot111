@@ -3,11 +3,13 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
+from aiogram.client.default import DefaultBotProperties
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
+from app.catalog_refresh import refresh_catalog
 from .keyboards import control_kb
 
 class AllowedOnly:
@@ -22,7 +24,7 @@ class AllowedOnly:
 class BroadcastState(StatesGroup):
     waiting_text = State()
 
-def init_control_router(manager, allowed_ids: set[int], session_maker):
+def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
     router = Router()
     router.message.outer_middleware(AllowedOnly(allowed_ids))
 
@@ -87,9 +89,10 @@ def init_control_router(manager, allowed_ids: set[int], session_maker):
         await state.clear()
 
         from aiogram import Bot
-        from app.config import load_config
-        cfg = load_config()
-        main_bot = Bot(cfg.bot_token, parse_mode="HTML")
+        main_bot = Bot(
+            cfg.bot_token,
+            default=DefaultBotProperties(parse_mode="HTML"),
+        )
 
         sent = failed = 0
         async with session_maker() as s:  # type: AsyncSession
@@ -107,5 +110,25 @@ def init_control_router(manager, allowed_ids: set[int], session_maker):
             f"Готово. Отправлено: {sent}, ошибок: {failed}.",
             reply_markup=control_kb(st["running"])
         )
+
+    @router.message(F.text == "🔁 Обновить каталог")
+    async def manual_refresh(m: Message):
+        st = manager.status()
+        await m.answer("Запускаю обновление каталога, подождите...", reply_markup=control_kb(st["running"]))
+
+        try:
+            total_cats, total_items = await refresh_catalog(cfg)
+        except Exception as e:
+            st = manager.status()
+            await m.answer(
+                f"❌ Ошибка обновления: <code>{e}</code>",
+                reply_markup=control_kb(st["running"]),
+            )
+        else:
+            st = manager.status()
+            await m.answer(
+                f"✅ Каталог обновлён вручную: категорий {total_cats}, товаров {total_items}.",
+                reply_markup=control_kb(st["running"]),
+            )
 
     return router

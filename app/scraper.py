@@ -1,4 +1,6 @@
 from typing import List, Dict
+from urllib.parse import urljoin
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -8,6 +10,21 @@ def _first_match(el, selectors: list[str]):
         if found:
             return found
     return None
+
+def _extract_image_url(el) -> str | None:
+    if el is None:
+        return None
+    for attr in ("src", "data-src", "data-original", "data-lazy", "data-srcset"):
+        val = el.get(attr)
+        if not val:
+            continue
+        if attr == "data-srcset":
+            val = val.split()[0]
+        return val.strip()
+    if el.string:
+        return el.string.strip()
+    return None
+
 
 def scrape_products(url: str, selectors: dict) -> List[Dict]:
     headers = {
@@ -40,7 +57,23 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
                 a = title_el.find("a")
                 if a and a.get("href"):
                     link = a["href"]
-        products.append({"title": title, "price": price, "url": link})
+        if link:
+            link = urljoin(url, link)
+
+        image_url = None
+        image_selectors = selectors.get("image") or []
+        if image_selectors:
+            img_el = _first_match(c, image_selectors)
+            image_url = _extract_image_url(img_el)
+            if image_url:
+                image_url = urljoin(url, image_url)
+
+        products.append({
+            "title": title,
+            "price": price,
+            "url": link,
+            "image_url": image_url,
+        })
     return products
 
 def scrape_products_multi(urls: list[str], selectors: dict) -> List[Dict]:

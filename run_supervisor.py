@@ -36,7 +36,7 @@ async def main():
 
     allowed_ids = set(cfg.control_admin_ids)
     dp.include_router(
-        init_control_router(manager, allowed_ids, Session)  # <-- третий аргумент: session_maker
+        init_control_router(manager, allowed_ids, Session, cfg)
     )
 
     logger.info("Supervisor запущен. Используйте контрольного бота для управления основным.")
