@@ -11,6 +11,7 @@ class SelectorSet:
     title: List[str]
     price: List[str]
     link_from_title: bool = True
+    image: List[str] | None = None
 
 @dataclass
 class ScrapeConfig:
