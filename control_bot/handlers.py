@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
@@ -8,7 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
+from app.parsers import fetch_horizont_catalog
+from app.dynamic_products import replace_all_categories_and_products
 from .keyboards import control_kb
+
+logger = logging.getLogger(__name__)
 
 class AllowedOnly:
     def __init__(self, allowed_ids: set[int]):
@@ -70,6 +77,23 @@ def init_control_router(manager, allowed_ids: set[int], session_maker):
             + f"• Пользователей в БД: {users}",
             reply_markup=control_kb(st["running"])
         )
+
+    @router.message(F.text == "🧾 Обновить каталог магазина")
+    async def refresh_catalog(m: Message):
+        await m.answer("Запускаю обновление каталога… Это может занять некоторое время.")
+
+        loop = asyncio.get_running_loop()
+        try:
+            catalog = await loop.run_in_executor(None, fetch_horizont_catalog)
+        except Exception as err:  # noqa: BLE001 — сообщаем об ошибке пользователю
+            logger.exception("Не удалось получить каталог")
+            await m.answer(f"Не удалось обновить каталог: {err}")
+            return
+
+        async with session_maker() as s:  # type: AsyncSession
+            await replace_all_categories_and_products(s, catalog)
+
+        await m.answer("Каталог успешно обновлён ✅", reply_markup=control_kb(manager.status()["running"]))
 
     @router.message(F.text == "📢 Рассылка")
     async def ask_broadcast(m: Message, state: FSMContext):
