@@ -9,70 +9,42 @@ from urllib.parse import (
     parse_qsl,
 )
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib3.util.ssl_ import create_urllib3_context
+import httpx
 from bs4 import BeautifulSoup
 
 
 logger = logging.getLogger(__name__)
 
 
-class _LenientHTTPSAdapter(HTTPAdapter):
-    """HTTPAdapter with relaxed TLS settings for problematic endpoints."""
+def _build_ssl_context() -> ssl.SSLContext:
+    """Create an SSL context that tolerates Horizont's TLS configuration."""
 
-    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-        context = create_urllib3_context()
-        # Ослабляем настройки безопасности, чтобы переживать нестандартную конфигурацию TLS на сайте
-        try:
-            context.set_ciphers("DEFAULT:@SECLEVEL=1")
-        except Exception:
-            pass
-        context.check_hostname = False
-        try:
-            context.minimum_version = ssl.TLSVersion.TLSv1
-        except AttributeError:
-            pass
-        pool_kwargs["ssl_context"] = context
-        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
-
-    def proxy_manager_for(self, *args, **kwargs):
-        context = create_urllib3_context()
-        try:
-            context.set_ciphers("DEFAULT:@SECLEVEL=1")
-        except Exception:
-            pass
-        context.check_hostname = False
-        try:
-            context.minimum_version = ssl.TLSVersion.TLSv1
-        except AttributeError:
-            pass
-        kwargs["ssl_context"] = context
-        return super().proxy_manager_for(*args, **kwargs)
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    try:
+        context.set_ciphers("DEFAULT:@SECLEVEL=1")
+    except ssl.SSLError:
+        pass
+    try:
+        context.minimum_version = ssl.TLSVersion.TLSv1
+    except AttributeError:
+        pass
+    return context
 
 
-def _configure_session(lenient: bool = True) -> requests.Session:
-    session = requests.Session()
-    session.trust_env = False  # обход прокси из окружения, мешающих доступу к сайту
-    session.verify = False  # отключаем проверку SSL сертификата по требованию заказчика
-
-    retries = Retry(
-        total=3,
-        backoff_factor=0.5,
-        status_forcelist=(403, 408, 429, 500, 502, 503, 504),
-        allowed_methods=("GET",),
+def _configure_client() -> httpx.Client:
+    ssl_context = _build_ssl_context()
+    transport = httpx.HTTPTransport(
+        retries=3,
+        verify=ssl_context,
     )
-    adapter = HTTPAdapter(max_retries=retries)
-    session.mount("http://", adapter)
-    if lenient:
-        lenient_adapter = _LenientHTTPSAdapter(max_retries=retries)
-        session.mount("https://", lenient_adapter)
-    else:
-        session.mount("https://", adapter)
-
-    session.headers.update(
-        {
+    client = httpx.Client(
+        transport=transport,
+        verify=ssl_context,
+        timeout=httpx.Timeout(25.0, connect=25.0, read=25.0),
+        follow_redirects=True,
+        headers={
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -84,9 +56,10 @@ def _configure_session(lenient: bool = True) -> requests.Session:
             "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
             "Connection": "close",
             "Referer": "https://horizont.garant.by/",
-        }
+        },
+        trust_env=False,
     )
-    return session
+    return client
 
 
 def _first_match(el, selectors: list[str]):
@@ -172,7 +145,7 @@ def _has_next_page(soup: BeautifulSoup, current_page: int) -> bool:
 
 
 def scrape_products(url: str, selectors: dict) -> List[Dict]:
-    session = _configure_session()
+    client = _configure_client()
 
     try:
         products: List[Dict] = []
@@ -181,7 +154,7 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
 
         while page <= 20:  # предохранитель от бесконечных циклов
             page_url = _make_page_url(url, page)
-            r = session.get(page_url, timeout=25)
+            r = client.get(page_url)
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "html.parser")
 
@@ -236,7 +209,7 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
 
         return products
     finally:
-        session.close()
+        client.close()
 
 
 def scrape_products_multi(sources: list[tuple[str, str | None]], selectors: dict) -> List[Dict]:
