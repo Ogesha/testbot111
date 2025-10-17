@@ -1,6 +1,8 @@
 import asyncio
 import time
 import logging
+from html import escape
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
@@ -134,7 +136,9 @@ class MainBotManager:
             await self._dp.start_polling(self._bot)
         except Exception as e:
             try:
-                await notifier.send(f"❌ Основной бот упал: <code>{e}</code>")
+                await notifier.send(
+                    f"❌ Основной бот упал: <code>{escape(str(e))}</code>"
+                )
             except Exception:
                 pass
             logger.exception("Критическая ошибка основного бота: ")

@@ -2,6 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher
@@ -193,7 +194,9 @@ class ParserBotManager:
             except Exception as e:
                 logger.exception("Ошибка обновления каталога парсер-ботом")
                 try:
-                    await notifier.send(f"❌ Парсер-бот: ошибка обновления: <code>{e}</code>")
+                    await notifier.send(
+                        f"❌ Парсер-бот: ошибка обновления: <code>{escape(str(e))}</code>"
+                    )
                 except Exception:
                     pass
             else:

@@ -1,3 +1,4 @@
+from html import escape
 from typing import TYPE_CHECKING
 
 from aiogram import Router, F
@@ -162,7 +163,8 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
             except Exception as e:
                 st_main, st_parser, lines = _format_status()
                 await m.answer(
-                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                    f"❌ Не удалось запустить парсер-бот: <code>{escape(str(e))}</code>\n"
+                    + "\n".join(lines),
                     reply_markup=control_kb(st_main["running"], st_parser.running),
                 )
                 return
@@ -172,7 +174,7 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
         except Exception as e:
             st_main, st_parser, lines = _format_status()
             await m.answer(
-                f"❌ Ошибка обновления: <code>{e}</code>\n" + "\n".join(lines),
+                f"❌ Ошибка обновления: <code>{escape(str(e))}</code>\n" + "\n".join(lines),
                 reply_markup=control_kb(st_main["running"], st_parser.running),
             )
         else:
@@ -197,7 +199,8 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
             except Exception as e:
                 st_main, st_parser, lines = _format_status()
                 await m.answer(
-                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                    f"❌ Не удалось запустить парсер-бот: <code>{escape(str(e))}</code>\n"
+                    + "\n".join(lines),
                     reply_markup=control_kb(st_main["running"], st_parser.running),
                 )
                 return
@@ -215,7 +218,8 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
         except Exception as e:
             st_main, st_parser, lines = _format_status()
             await m.answer(
-                f"❌ Не удалось перезапустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                f"❌ Не удалось перезапустить парсер-бот: <code>{escape(str(e))}</code>\n"
+                + "\n".join(lines),
                 reply_markup=control_kb(st_main["running"], st_parser.running),
             )
             return

@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery, FSInputFile
@@ -101,10 +103,11 @@ async def shop_show_category(c: CallbackQuery, session: AsyncSession):
         await c.answer("Категория не найдена", show_alert=True)
         return
 
+    title_html = escape(title)
     items = await fetch_products_for_category(session, slug, limit=20)
     if not items:
         await c.message.edit_text(
-            f"Категория «{title}» пока пуста.",
+            f"Категория «{title_html}» пока пуста.",
             reply_markup=shop_products_kb(slug, []),
         )
         await c.answer()
@@ -112,7 +115,7 @@ async def shop_show_category(c: CallbackQuery, session: AsyncSession):
 
     keyboard = shop_products_kb(slug, items)
     await c.message.edit_text(
-        f"Категория «{title}». Выберите товар:",
+        f"Категория «{title_html}». Выберите товар:",
         reply_markup=keyboard,
     )
     await c.answer()
@@ -131,11 +134,12 @@ async def shop_show_product(c: CallbackQuery, session: AsyncSession):
         await c.answer("Товар не найден", show_alert=True)
         return
 
-    text_parts = [f"<b>{product['title']}</b>"]
+    title_html = escape(product.get("title", ""))
+    text_parts = [f"<b>{title_html}</b>"]
     if product.get("price"):
-        text_parts.append(f"Цена: {product['price']}")
+        text_parts.append(f"Цена: {escape(str(product['price']))}")
     if product.get("url"):
-        text_parts.append(product["url"])
+        text_parts.append(escape(str(product["url"])))
     caption = "\n".join(text_parts)
     keyboard = product_detail_kb(slug, product)
 
