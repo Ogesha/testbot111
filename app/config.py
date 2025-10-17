@@ -46,6 +46,7 @@ class AppConfig:
     categories: List[CategoryConf]
     broadcast: BroadcastConf
     bot_token: str
+    parser_bot_token: str | None
     admin_ids: list[int]
     database_url: str
     tz: str
@@ -62,6 +63,8 @@ def load_config(yaml_path: str = "config.yaml") -> AppConfig:
     bot_token = os.getenv("BOT_TOKEN", "")
     if not bot_token:
         raise RuntimeError("BOT_TOKEN не задан в .env")
+
+    parser_bot_token = os.getenv("PARSER_BOT_TOKEN") or None
 
     control_bot_token = os.getenv("CONTROL_BOT_TOKEN", "")
     control_admin_ids = [int(x.strip()) for x in os.getenv("CONTROL_ADMINS", "").split(",") if x.strip().isdigit()]
@@ -93,6 +96,7 @@ def load_config(yaml_path: str = "config.yaml") -> AppConfig:
             message_template=y.get("broadcast", {}).get("message_template", "Новости: {count}")
         ),
         bot_token=bot_token,
+        parser_bot_token=parser_bot_token,
         admin_ids=[int(x.strip()) for x in os.getenv("ADMIN_IDS","").split(",") if x.strip().isdigit()],
         database_url=os.getenv("DATABASE_URL", "postgresql+asyncpg://shopbot:shopbot@localhost:5432/shopbot"),
         tz=os.getenv("TZ", "UTC"),

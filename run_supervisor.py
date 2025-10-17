@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import load_config
 from app.db import init_engine, get_sessionmaker
 from app.mainbot_runtime import MainBotManager
+from app.parserbot_runtime import ParserBotManager
 from control_bot.handlers import init_control_router
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,16 @@ async def main():
     # Менеджер основного бота (создание таблиц/миграции/админы)
     manager = MainBotManager(cfg)
     await manager.ensure_infra()
+
+    parser_manager = ParserBotManager(cfg)
+    if cfg.parser_bot_token:
+        try:
+            await parser_manager.start()
+            logger.info("Парсер-бот запущен supervisor'ом")
+        except Exception:
+            logger.exception("Не удалось запустить парсер-бот при старте supervisor")
+    else:
+        logger.warning("PARSER_BOT_TOKEN не задан — парсер-бот не будет запущен")
 
     # После перезапуска supervisor автоматически поднимаем основной бот,
     # чтобы пользователям не приходилось делать это вручную из контрольного
@@ -45,7 +56,7 @@ async def main():
 
     allowed_ids = set(cfg.control_admin_ids)
     dp.include_router(
-        init_control_router(manager, allowed_ids, Session, cfg)
+        init_control_router(manager, parser_manager, allowed_ids, Session, cfg)
     )
 
     logger.info("Supervisor запущен. Используйте контрольного бота для управления основным.")
@@ -57,6 +68,11 @@ async def main():
                 await manager.stop()
         except Exception:
             logger.exception("Не удалось корректно остановить основной бот при завершении supervisor")
+        try:
+            if parser_manager.status().running:
+                await parser_manager.stop()
+        except Exception:
+            logger.exception("Не удалось корректно остановить парсер-бот")
         await control_bot.session.close()
 
 

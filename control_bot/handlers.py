@@ -1,40 +1,71 @@
+from typing import TYPE_CHECKING
+
 from aiogram import Router, F
-from aiogram.filters import CommandStart
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
 from aiogram.client.default import DefaultBotProperties
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from app.catalog_refresh import refresh_catalog
 from .keyboards import control_kb
+
+if TYPE_CHECKING:
+    from app.parserbot_runtime import ParserBotManager
+
 
 class AllowedOnly:
     def __init__(self, allowed_ids: set[int]):
         self.allowed = allowed_ids
+
     async def __call__(self, handler, event, data):
         user_id = getattr(event.from_user, "id", None)
         if user_id not in self.allowed:
             return
         return await handler(event, data)
 
+
 class BroadcastState(StatesGroup):
     waiting_text = State()
 
-def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
+
+def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids: set[int], session_maker, cfg):
     router = Router()
     router.message.outer_middleware(AllowedOnly(allowed_ids))
 
+    def _format_status(main_status: dict | None = None):
+        st_main = main_status or manager.status()
+        st_parser = parser_manager.status()
+
+        lines = [
+            f"• Основной бот: {'🟢 работает' if st_main['running'] else '🔴 остановлен'}",
+        ]
+        if st_main.get("uptime_sec"):
+            lines.append(f"  └ Аптайм: {st_main['uptime_sec']} сек")
+
+        parser_line = f"• Парсер-бот: {'🟢 запущен' if st_parser.running else '🔴 остановлен'}"
+        lines.append(parser_line)
+        if st_parser.last_refresh_at:
+            totals = ""
+            if st_parser.last_totals:
+                totals = f" (категорий {st_parser.last_totals[0]}, товаров {st_parser.last_totals[1]})"
+            lines.append(
+                "  └ Последнее обновление: "
+                + st_parser.last_refresh_at.strftime("%d.%m %H:%M")
+                + totals
+            )
+
+        return st_main, st_parser, lines
+
     @router.message(CommandStart())
     async def start(m: Message):
-        st = manager.status()
+        st, _, lines = _format_status()
         await m.answer(
-            f"Контрольный бот готов.\nОсновной бот: {'🟢 работает' if st['running'] else '🔴 остановлен'}"
-            + (f"\nАптайм: {st['uptime_sec']} сек" if st['uptime_sec'] else ""),
-            reply_markup=control_kb(st["running"])
+            "Контрольный бот готов.\n" + "\n".join(lines),
+            reply_markup=control_kb(st["running"]),
         )
 
     @router.message(F.text.in_(("▶️ Запустить основной бот", "⏹ Остановить основной бот")))
@@ -44,38 +75,31 @@ def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
             res = await manager.stop()
         else:
             res = await manager.start()
-        st2 = manager.status()
+        st2, _, lines = _format_status()
         await m.answer(
-            f"{res}\nСостояние: {'🟢 работает' if st2['running'] else '🔴 остановлен'}",
-            reply_markup=control_kb(st2["running"])
+            res + "\n" + "\n".join(lines),
+            reply_markup=control_kb(st2["running"]),
         )
 
     @router.message(F.text == "🔄 Перезапуск основного бота")
     async def restart(m: Message):
         res = await manager.restart()
-        st = manager.status()
+        st, _, lines = _format_status()
         await m.answer(
-            f"{res}\nСостояние: {'🟢 работает' if st['running'] else '🔴 остановлен'}",
-            reply_markup=control_kb(st["running"])
+            res + "\n" + "\n".join(lines),
+            reply_markup=control_kb(st["running"]),
         )
 
     @router.message(F.text == "ℹ️ Статус")
     async def status(m: Message):
-        st = manager.status()
+        st, _, base_lines = _format_status()
         async with session_maker() as s:  # type: AsyncSession
             res = await s.execute(select(User))
             users = len(list(res.scalars().all()))
-        lines = [
-            "Статус:",
-            f"• Основной бот: {'🟢 работает' if st['running'] else '🔴 остановлен'}",
-        ]
-        if st["uptime_sec"]:
-            lines.append(f"• Аптайм: {st['uptime_sec']} сек")
-        lines.append(f"• Пользователей в БД: {users}")
-
+        lines = ["Статус:", *base_lines, f"• Пользователей в БД: {users}"]
         await m.answer(
             "\n".join(lines),
-            reply_markup=control_kb(st["running"])
+            reply_markup=control_kb(st["running"]),
         )
 
     @router.message(F.text == "📢 Рассылка")
@@ -89,6 +113,7 @@ def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
         await state.clear()
 
         from aiogram import Bot
+
         main_bot = Bot(
             cfg.bot_token,
             default=DefaultBotProperties(parse_mode="HTML"),
@@ -105,10 +130,10 @@ def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
                     failed += 1
 
         await main_bot.session.close()
-        st = manager.status()
+        st, _, lines = _format_status()
         await m.answer(
-            f"Готово. Отправлено: {sent}, ошибок: {failed}.",
-            reply_markup=control_kb(st["running"])
+            f"Готово. Отправлено: {sent}, ошибок: {failed}.\n" + "\n".join(lines),
+            reply_markup=control_kb(st["running"]),
         )
 
     @router.message(F.text == "🔁 Обновить каталог")
@@ -116,8 +141,20 @@ def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
         st = manager.status()
         await m.answer("Запускаю обновление каталога, подождите...", reply_markup=control_kb(st["running"]))
 
+        parser_status = parser_manager.status()
+        if not parser_status.running:
+            try:
+                await parser_manager.start()
+            except Exception as e:
+                st = manager.status()
+                await m.answer(
+                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>",
+                    reply_markup=control_kb(st["running"]),
+                )
+                return
+
         try:
-            total_cats, total_items = await refresh_catalog(cfg)
+            total_cats, total_items = await parser_manager.refresh_now()
         except Exception as e:
             st = manager.status()
             await m.answer(
@@ -125,9 +162,13 @@ def init_control_router(manager, allowed_ids: set[int], session_maker, cfg):
                 reply_markup=control_kb(st["running"]),
             )
         else:
-            st = manager.status()
+            st, _, lines = _format_status()
             await m.answer(
-                f"✅ Каталог обновлён вручную: категорий {total_cats}, товаров {total_items}.",
+                "✅ Каталог обновлён вручную: категорий {cats}, товаров {items}.\n".format(
+                    cats=total_cats,
+                    items=total_items,
+                )
+                + "\n".join(lines),
                 reply_markup=control_kb(st["running"]),
             )
 
