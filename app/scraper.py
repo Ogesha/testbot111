@@ -56,6 +56,7 @@ class _LenientHTTPSAdapter(HTTPAdapter):
 def _configure_session(lenient: bool = False) -> requests.Session:
     session = requests.Session()
     session.trust_env = False  # обход прокси из окружения, мешающих доступу к сайту
+    session.verify = False  # отключаем проверку SSL сертификата по требованию заказчика
 
     retries = Retry(
         total=3,
@@ -68,7 +69,6 @@ def _configure_session(lenient: bool = False) -> requests.Session:
     if lenient:
         lenient_adapter = _LenientHTTPSAdapter(max_retries=retries)
         session.mount("https://", lenient_adapter)
-        session.verify = False
     else:
         session.mount("https://", adapter)
 
