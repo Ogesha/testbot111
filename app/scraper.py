@@ -11,7 +11,6 @@ from urllib.parse import (
 
 import requests
 from requests.adapters import HTTPAdapter
-from requests.exceptions import SSLError
 from urllib3.util.retry import Retry
 from urllib3.util.ssl_ import create_urllib3_context
 from bs4 import BeautifulSoup
@@ -53,7 +52,7 @@ class _LenientHTTPSAdapter(HTTPAdapter):
         return super().proxy_manager_for(*args, **kwargs)
 
 
-def _configure_session(lenient: bool = False) -> requests.Session:
+def _configure_session(lenient: bool = True) -> requests.Session:
     session = requests.Session()
     session.trust_env = False  # обход прокси из окружения, мешающих доступу к сайту
     session.verify = False  # отключаем проверку SSL сертификата по требованию заказчика
@@ -174,7 +173,6 @@ def _has_next_page(soup: BeautifulSoup, current_page: int) -> bool:
 
 def scrape_products(url: str, selectors: dict) -> List[Dict]:
     session = _configure_session()
-    lenient_session: requests.Session | None = None
 
     try:
         products: List[Dict] = []
@@ -183,17 +181,7 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
 
         while page <= 20:  # предохранитель от бесконечных циклов
             page_url = _make_page_url(url, page)
-            try:
-                r = session.get(page_url, timeout=25)
-            except SSLError as exc:
-                logger.warning(
-                    "SSL error while requesting %s: %s. Retrying with relaxed TLS settings.",
-                    page_url,
-                    exc,
-                )
-                if lenient_session is None:
-                    lenient_session = _configure_session(lenient=True)
-                r = lenient_session.get(page_url, timeout=25)
+            r = session.get(page_url, timeout=25)
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "html.parser")
 
@@ -249,8 +237,6 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
         return products
     finally:
         session.close()
-        if lenient_session is not None:
-            lenient_session.close()
 
 
 def scrape_products_multi(sources: list[tuple[str, str | None]], selectors: dict) -> List[Dict]:
