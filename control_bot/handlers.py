@@ -11,7 +11,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
-from .keyboards import control_kb
+from .keyboards import (
+    control_kb,
+    MAIN_RESTART_TEXT,
+    MAIN_START_TEXT,
+    MAIN_STOP_TEXT,
+    PARSER_RESTART_TEXT,
+    PARSER_START_TEXT,
+    PARSER_STOP_TEXT,
+    REFRESH_TEXT,
+    BROADCAST_TEXT,
+    STATUS_TEXT,
+)
 
 if TYPE_CHECKING:
     from app.parserbot_runtime import ParserBotManager
@@ -62,47 +73,47 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
 
     @router.message(CommandStart())
     async def start(m: Message):
-        st, _, lines = _format_status()
+        st, parser_status, lines = _format_status()
         await m.answer(
             "Контрольный бот готов.\n" + "\n".join(lines),
-            reply_markup=control_kb(st["running"]),
+            reply_markup=control_kb(st["running"], parser_status.running),
         )
 
-    @router.message(F.text.in_(("▶️ Запустить основной бот", "⏹ Остановить основной бот")))
+    @router.message(F.text.in_((MAIN_START_TEXT, MAIN_STOP_TEXT)))
     async def toggle(m: Message):
         st = manager.status()
         if st["running"]:
             res = await manager.stop()
         else:
             res = await manager.start()
-        st2, _, lines = _format_status()
+        st2, parser_status, lines = _format_status()
         await m.answer(
             res + "\n" + "\n".join(lines),
-            reply_markup=control_kb(st2["running"]),
+            reply_markup=control_kb(st2["running"], parser_status.running),
         )
 
-    @router.message(F.text == "🔄 Перезапуск основного бота")
+    @router.message(F.text == MAIN_RESTART_TEXT)
     async def restart(m: Message):
         res = await manager.restart()
-        st, _, lines = _format_status()
+        st, parser_status, lines = _format_status()
         await m.answer(
             res + "\n" + "\n".join(lines),
-            reply_markup=control_kb(st["running"]),
+            reply_markup=control_kb(st["running"], parser_status.running),
         )
 
-    @router.message(F.text == "ℹ️ Статус")
+    @router.message(F.text == STATUS_TEXT)
     async def status(m: Message):
-        st, _, base_lines = _format_status()
+        st, parser_status, base_lines = _format_status()
         async with session_maker() as s:  # type: AsyncSession
             res = await s.execute(select(User))
             users = len(list(res.scalars().all()))
         lines = ["Статус:", *base_lines, f"• Пользователей в БД: {users}"]
         await m.answer(
             "\n".join(lines),
-            reply_markup=control_kb(st["running"]),
+            reply_markup=control_kb(st["running"], parser_status.running),
         )
 
-    @router.message(F.text == "📢 Рассылка")
+    @router.message(F.text == BROADCAST_TEXT)
     async def ask_broadcast(m: Message, state: FSMContext):
         await m.answer("Введите текст рассылки (отправится всем пользователям):")
         await state.set_state(BroadcastState.waiting_text)
@@ -130,46 +141,89 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
                     failed += 1
 
         await main_bot.session.close()
-        st, _, lines = _format_status()
+        st, parser_status, lines = _format_status()
         await m.answer(
             f"Готово. Отправлено: {sent}, ошибок: {failed}.\n" + "\n".join(lines),
-            reply_markup=control_kb(st["running"]),
+            reply_markup=control_kb(st["running"], parser_status.running),
         )
 
-    @router.message(F.text == "🔁 Обновить каталог")
+    @router.message(F.text == REFRESH_TEXT)
     async def manual_refresh(m: Message):
-        st = manager.status()
-        await m.answer("Запускаю обновление каталога, подождите...", reply_markup=control_kb(st["running"]))
+        st_main, st_parser, _ = _format_status()
+        await m.answer(
+            "Запускаю обновление каталога, подождите...",
+            reply_markup=control_kb(st_main["running"], st_parser.running),
+        )
 
         parser_status = parser_manager.status()
         if not parser_status.running:
             try:
                 await parser_manager.start()
             except Exception as e:
-                st = manager.status()
+                st_main, st_parser, lines = _format_status()
                 await m.answer(
-                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>",
-                    reply_markup=control_kb(st["running"]),
+                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                    reply_markup=control_kb(st_main["running"], st_parser.running),
                 )
                 return
 
         try:
             total_cats, total_items = await parser_manager.refresh_now()
         except Exception as e:
-            st = manager.status()
+            st_main, st_parser, lines = _format_status()
             await m.answer(
-                f"❌ Ошибка обновления: <code>{e}</code>",
-                reply_markup=control_kb(st["running"]),
+                f"❌ Ошибка обновления: <code>{e}</code>\n" + "\n".join(lines),
+                reply_markup=control_kb(st_main["running"], st_parser.running),
             )
         else:
-            st, _, lines = _format_status()
+            st_main, st_parser, lines = _format_status()
             await m.answer(
                 "✅ Каталог обновлён вручную: категорий {cats}, товаров {items}.\n".format(
                     cats=total_cats,
                     items=total_items,
                 )
                 + "\n".join(lines),
-                reply_markup=control_kb(st["running"]),
+                reply_markup=control_kb(st_main["running"], st_parser.running),
             )
+
+    @router.message(F.text.in_((PARSER_START_TEXT, PARSER_STOP_TEXT)))
+    async def toggle_parser(m: Message):
+        st = parser_manager.status()
+        if st.running:
+            res = await parser_manager.stop()
+        else:
+            try:
+                res = await parser_manager.start()
+            except Exception as e:
+                st_main, st_parser, lines = _format_status()
+                await m.answer(
+                    f"❌ Не удалось запустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                    reply_markup=control_kb(st_main["running"], st_parser.running),
+                )
+                return
+
+        st_main, st_parser, lines = _format_status()
+        await m.answer(
+            res + "\n" + "\n".join(lines),
+            reply_markup=control_kb(st_main["running"], st_parser.running),
+        )
+
+    @router.message(F.text == PARSER_RESTART_TEXT)
+    async def restart_parser(m: Message):
+        try:
+            res = await parser_manager.restart()
+        except Exception as e:
+            st_main, st_parser, lines = _format_status()
+            await m.answer(
+                f"❌ Не удалось перезапустить парсер-бот: <code>{e}</code>\n" + "\n".join(lines),
+                reply_markup=control_kb(st_main["running"], st_parser.running),
+            )
+            return
+
+        st_main, st_parser, lines = _format_status()
+        await m.answer(
+            res + "\n" + "\n".join(lines),
+            reply_markup=control_kb(st_main["running"], st_parser.running),
+        )
 
     return router
