@@ -1,4 +1,6 @@
 from typing import List, Dict
+import logging
+import ssl
 from urllib.parse import (
     urljoin,
     urlsplit,
@@ -9,11 +11,49 @@ from urllib.parse import (
 
 import requests
 from requests.adapters import HTTPAdapter
+from requests.exceptions import SSLError
 from urllib3.util.retry import Retry
+from urllib3.util.ssl_ import create_urllib3_context
 from bs4 import BeautifulSoup
 
 
-def _configure_session() -> requests.Session:
+logger = logging.getLogger(__name__)
+
+
+class _LenientHTTPSAdapter(HTTPAdapter):
+    """HTTPAdapter with relaxed TLS settings for problematic endpoints."""
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        context = create_urllib3_context()
+        # Ослабляем настройки безопасности, чтобы переживать нестандартную конфигурацию TLS на сайте
+        try:
+            context.set_ciphers("DEFAULT:@SECLEVEL=1")
+        except Exception:
+            pass
+        context.check_hostname = False
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1
+        except AttributeError:
+            pass
+        pool_kwargs["ssl_context"] = context
+        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+
+    def proxy_manager_for(self, *args, **kwargs):
+        context = create_urllib3_context()
+        try:
+            context.set_ciphers("DEFAULT:@SECLEVEL=1")
+        except Exception:
+            pass
+        context.check_hostname = False
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1
+        except AttributeError:
+            pass
+        kwargs["ssl_context"] = context
+        return super().proxy_manager_for(*args, **kwargs)
+
+
+def _configure_session(lenient: bool = False) -> requests.Session:
     session = requests.Session()
     session.trust_env = False  # обход прокси из окружения, мешающих доступу к сайту
 
@@ -25,7 +65,12 @@ def _configure_session() -> requests.Session:
     )
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
-    session.mount("https://", adapter)
+    if lenient:
+        lenient_adapter = _LenientHTTPSAdapter(max_retries=retries)
+        session.mount("https://", lenient_adapter)
+        session.verify = False
+    else:
+        session.mount("https://", adapter)
 
     session.headers.update(
         {
@@ -129,6 +174,7 @@ def _has_next_page(soup: BeautifulSoup, current_page: int) -> bool:
 
 def scrape_products(url: str, selectors: dict) -> List[Dict]:
     session = _configure_session()
+    lenient_session: requests.Session | None = None
 
     try:
         products: List[Dict] = []
@@ -137,7 +183,17 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
 
         while page <= 20:  # предохранитель от бесконечных циклов
             page_url = _make_page_url(url, page)
-            r = session.get(page_url, timeout=25)
+            try:
+                r = session.get(page_url, timeout=25)
+            except SSLError as exc:
+                logger.warning(
+                    "SSL error while requesting %s: %s. Retrying with relaxed TLS settings.",
+                    page_url,
+                    exc,
+                )
+                if lenient_session is None:
+                    lenient_session = _configure_session(lenient=True)
+                r = lenient_session.get(page_url, timeout=25)
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "html.parser")
 
@@ -193,6 +249,8 @@ def scrape_products(url: str, selectors: dict) -> List[Dict]:
         return products
     finally:
         session.close()
+        if lenient_session is not None:
+            lenient_session.close()
 
 
 def scrape_products_multi(sources: list[tuple[str, str | None]], selectors: dict) -> List[Dict]:
