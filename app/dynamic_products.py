@@ -63,8 +63,10 @@ async def replace_all_categories_and_products(session: AsyncSession, categorized
         )
     )
 
-    await session.execute(sa_text("TRUNCATE TABLE products;"))
-    await session.execute(sa_text("TRUNCATE TABLE product_categories;"))
+    # Используем TRUNCATE ... CASCADE, чтобы корректно очистить связанные таблицы
+    await session.execute(
+        sa_text("TRUNCATE TABLE product_categories RESTART IDENTITY CASCADE;")
+    )
 
     for position, (category_title, items) in enumerate(categorized.items(), start=1):
         slug = slugify(category_title)
