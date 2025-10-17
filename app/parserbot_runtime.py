@@ -141,7 +141,7 @@ class ParserBotManager:
             )
 
         @self._dp.startup()
-        async def on_startup(_: Dispatcher):
+        async def on_startup():
             self._is_running = True
             if self._started_event and not self._started_event.is_set():
                 self._started_event.set()
@@ -152,7 +152,7 @@ class ParserBotManager:
                 pass
 
         @self._dp.shutdown()
-        async def on_shutdown(_: Dispatcher):
+        async def on_shutdown():
             if self._refresh_task and not self._refresh_task.done():
                 self._refresh_task.cancel()
                 try:
