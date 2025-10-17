@@ -14,6 +14,7 @@ from aiogram.types import Message
 from .config import AppConfig
 from .catalog_refresh import refresh_catalog
 from .notifier import ControlNotifier
+from .telegram_session import create_telegram_session
 
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ class ParserBotManager:
         self._bot = Bot(
             self.cfg.parser_bot_token,
             default=DefaultBotProperties(parse_mode="HTML"),
+            session=create_telegram_session(),
         )
         self._dp = Dispatcher(storage=MemoryStorage())
 

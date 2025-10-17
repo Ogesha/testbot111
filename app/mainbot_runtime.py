@@ -16,6 +16,7 @@ from .repositories import admins_bootstrap
 from .scheduler import setup_scheduler
 from .notifier import ControlNotifier
 from bot.handlers import build_main_router
+from .telegram_session import create_telegram_session
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ class MainBotManager:
         self._bot = Bot(
             self.cfg.bot_token,
             default=DefaultBotProperties(parse_mode="HTML"),
+            session=create_telegram_session(),
         )
         self._dp = Dispatcher(storage=MemoryStorage())
         self._dp.include_router(build_main_router())

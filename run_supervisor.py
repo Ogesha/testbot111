@@ -10,6 +10,7 @@ from app.db import init_engine, get_sessionmaker
 from app.mainbot_runtime import MainBotManager
 from app.parserbot_runtime import ParserBotManager
 from control_bot.handlers import init_control_router
+from app.telegram_session import create_telegram_session
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def main():
     control_bot = Bot(
         cfg.control_bot_token,
         default=DefaultBotProperties(parse_mode="HTML"),
+        session=create_telegram_session(),
     )
     dp = Dispatcher(storage=MemoryStorage())
 

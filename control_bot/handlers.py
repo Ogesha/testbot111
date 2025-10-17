@@ -1,7 +1,7 @@
 from html import escape
 from typing import TYPE_CHECKING
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -12,6 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
+from app.telegram_session import create_telegram_session
 from .keyboards import (
     control_kb,
     MAIN_RESTART_TEXT,
@@ -127,11 +128,10 @@ def init_control_router(manager, parser_manager: "ParserBotManager", allowed_ids
         text = (m.text or "").strip()
         await state.clear()
 
-        from aiogram import Bot
-
         main_bot = Bot(
             cfg.bot_token,
             default=DefaultBotProperties(parse_mode="HTML"),
+            session=create_telegram_session(),
         )
 
         sent = failed = 0
