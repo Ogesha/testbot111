@@ -1,25 +1,87 @@
 scrape:
   urls:
-    - "https://horizont.garant.by/"
+    - url: "https://horizont.garant.by/tv-and-complimentary/televizory/"
+      category: "Телевизоры"
+    - url: "https://horizont.garant.by/tv-and-complimentary/kronshtejny/"
+      category: "Кронштейны"
+    - url: "https://horizont.garant.by/tv-and-complimentary/televizionnye_antenny/"
+      category: "Телевизионные антенны"
+    - url: "https://horizont.garant.by/tv-and-complimentary/priemniki_cifrovogo_televideniya/"
+      category: "Приёмники цифрового телевидения"
+    - url: "https://horizont.garant.by/xolodilniki_i_morozilniki/"
+      category: "Холодильники и морозильники"
+    - url: "https://horizont.garant.by/stiralnye-mashiny/"
+      category: "Стиральные машины"
+    - url: "https://horizont.garant.by/posudomoechnye-mashiny/"
+      category: "Посудомоечные машины"
+    - url: "https://horizont.garant.by/plity-pechi-duxovki/elektroduxovki_vstraivaemye/"
+      category: "Встраиваемые электродуховки"
+    - url: "https://horizont.garant.by/plity-pechi-duxovki/microwave_oven/"
+      category: "Микроволновые печи"
+    - url: "https://horizont.garant.by/plity-pechi-duxovki/gazovye_plity/"
+      category: "Газовые плиты"
+    - url: "https://horizont.garant.by/plity-pechi-duxovki/vstraivaemye_gazovye_stoly/"
+      category: "Встраиваемые газовые столы"
+    - url: "https://horizont.garant.by/vozduxoochistiteli/"
+      category: "Воздухоочистители"
+    - url: "https://horizont.garant.by/texnika-i-aksessuary-dlya-uborki/vacuum_cleaners/"
+      category: "Пылесосы"
+    - url: "https://horizont.garant.by/texnika-i-aksessuary-dlya-uborki/vertikalnye-pylesosy-roboty-pylesosy-mojschiki-okon/"
+      category: "Вертикальные пылесосы и роботы"
+    - url: "https://horizont.garant.by/texnika-i-aksessuary-dlya-uborki/aksessuaryi-k-texnike-dlya-uborki/"
+      category: "Аксессуары для уборки"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/utyugi-otparivateli/"
+      category: "Утюги и отпариватели"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/elektrochajniki/"
+      category: "Электрочайники"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/kofemolki-kofevalki/"
+      category: "Кофемолки и кофеварки"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/myasorubki-kuxonnye-kombajny-blendery-miksery/"
+      category: "Кухонные комбайны и мясорубки"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/multivarki-sushilki-dlya-ovoschej-i-fruktov-sokovyzhimalki/"
+      category: "Мультиварки и сушилки"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/sendvichnicy-vafelnicy-oreshnicy-keksnicy/"
+      category: "Сэндвичницы и вафельницы"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/obogrevateli-ventilyatory-uvlazhniteli-vozduxa/"
+      category: "Обогреватели и увлажнители"
+    - url: "https://horizont.garant.by/melkaya-bytovaya-texnika/vesy/"
+      category: "Весы"
+    - url: "https://horizont.garant.by/vodonagrevateli/"
+      category: "Водонагреватели"
+    - url: "https://horizont.garant.by/texnika-dlya-krasoty/feny-stajlery/"
+      category: "Фены и стайлеры"
+    - url: "https://horizont.garant.by/texnika-dlya-krasoty/elektrobritvy-trimmery/"
+      category: "Электробритвы и триммеры"
+    - url: "https://horizont.garant.by/telefonyi-provodnyie-besprovodnyie-/"
+      category: "Проводные и беспроводные телефоны"
+    - url: "https://horizont.garant.by/radiopriemniki/"
+      category: "Радиоприёмники"
+    - url: "https://horizont.garant.by/kompyuternaya-texnika-i-aksessuaryi/noutbuki-kompyuteryi-monobloki/"
+      category: "Ноутбуки, компьютеры и моноблоки"
+    - url: "https://horizont.garant.by/kompyuternaya-texnika-i-aksessuaryi/kompyuternyie-aksessuaryi/"
+      category: "Компьютерные аксессуары"
   daily_time: "09:30"
   selectors:
-    card: ["div.product", "div.product-card", "li.product"]
-    title: [".product-title", "a.title", "h2", "h3"]
-    price: [".price", ".product-price", ".amount"]
+    card: ["div.catalog-products__item", "div.product", "div.product-card", "li.product"]
+    title: [".catalog-products__item-title", ".product-title", "a.title", "h2", "h3"]
+    price: [".catalog-products__item-price", ".price", ".product-price", ".amount"]
     link_from_title: true
-    image: [".product-card img", ".catalog-products__item img", "img"]
+    image: [".catalog-products__item img", ".product-card img", "img"]
 
-# Категории и ключи для автокатегоризации
+# Категории и ключи для автокатегоризации (используются как резервный механизм)
 categories:
   - name: "Телевизоры"
-    keywords: ["телевизор", "tv", "smart tv", "ultra hd", "oled", "lcd"]
-  - name: "Холодильники"
-    keywords: ["холодильник", "frost", "морозиль", "freezer", "fridge"]
+    keywords: ["телевизор", "tv", "oled", "lcd", "uhd"]
+  - name: "Холодильники и морозильники"
+    keywords: ["холодиль", "морозиль", "fridge"]
   - name: "Стиральные машины"
-    keywords: ["стиральн", "washer", "washing"]
-  - name: "Микроволновки"
-    keywords: ["микроволнов", "микроволновая", "печь", "свч", "microwave"]
+    keywords: ["стираль", "washer"]
+  - name: "Микроволновые печи"
+    keywords: ["микроволнов", "свч", "microwave"]
 
 broadcast:
   autosend_daily_time: null
   message_template: "Каталог обновлён: {count} товаров"
+
+storage:
+  catalog_dir: "storage/catalog"

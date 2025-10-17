@@ -1,6 +1,8 @@
 import asyncio
 import time
 import logging
+from html import escape
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
@@ -13,7 +15,8 @@ from .db import get_engine, get_sessionmaker, Base
 from .repositories import admins_bootstrap
 from .scheduler import setup_scheduler
 from .notifier import ControlNotifier
-from bot.handlers import router as main_router
+from bot.handlers import build_main_router
+from .telegram_session import create_telegram_session
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,8 @@ class MainBotManager:
         self._dp: Dispatcher | None = None
         self._scheduler = None
         self._started_at: float | None = None
+        self._is_running: bool = False
+        self._started_event: asyncio.Event | None = None
 
     async def ensure_infra(self):
         """
@@ -95,9 +100,10 @@ class MainBotManager:
         self._bot = Bot(
             self.cfg.bot_token,
             default=DefaultBotProperties(parse_mode="HTML"),
+            session=create_telegram_session(),
         )
         self._dp = Dispatcher(storage=MemoryStorage())
-        self._dp.include_router(main_router)
+        self._dp.include_router(build_main_router())
 
         # Middleware для сессии БД
         @self._dp.update.outer_middleware()
@@ -117,6 +123,9 @@ class MainBotManager:
         self._scheduler = setup_scheduler(self.cfg, self._bot)
         self._scheduler.start()
         self._started_at = time.time()
+        self._is_running = True
+        if self._started_event and not self._started_event.is_set():
+            self._started_event.set()
 
         # Уведомления админам
         notifier = ControlNotifier(self.cfg.control_bot_token, self.cfg.control_admin_ids)
@@ -129,13 +138,18 @@ class MainBotManager:
             await self._dp.start_polling(self._bot)
         except Exception as e:
             try:
-                await notifier.send(f"❌ Основной бот упал: <code>{e}</code>")
+                await notifier.send(
+                    f"❌ Основной бот упал: <code>{escape(str(e))}</code>"
+                )
             except Exception:
                 pass
             logger.exception("Критическая ошибка основного бота: ")
             raise
         finally:
             self._started_at = None
+            self._is_running = False
+            if self._started_event and not self._started_event.is_set():
+                self._started_event.set()
             try:
                 if self._scheduler:
                     self._scheduler.shutdown(wait=False)
@@ -157,8 +171,21 @@ class MainBotManager:
             return "Основной бот уже запущен."
         if self._Session is None:
             await self.ensure_infra()
+        start_event = asyncio.Event()
+        self._started_event = start_event
         self._task = asyncio.create_task(self._run_polling(), name="mainbot-polling")
-        await asyncio.sleep(0.5)
+        try:
+            await asyncio.wait_for(start_event.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            logger.warning("Основной бот не подтвердил запуск за 10 секунд")
+        finally:
+            self._started_event = None
+        if self._task and self._task.done():
+            exc = self._task.exception()
+            if exc:
+                self._task = None
+                self._is_running = False
+                raise exc
         return "Основной бот запущен."
 
     async def stop(self) -> str:
@@ -178,6 +205,8 @@ class MainBotManager:
             self._bot = None
             self._scheduler = None
             self._started_at = None
+            self._is_running = False
+            self._started_event = None
         return "Основной бот остановлен."
 
     async def restart(self) -> str:
@@ -188,5 +217,10 @@ class MainBotManager:
     def status(self) -> dict:
         """Возвращает текущее состояние бота."""
         running = bool(self._task and not self._task.done())
-        uptime = int(time.time() - self._started_at) if running and self._started_at else None
+        if self._is_running:
+            running = True
+        if not running:
+            uptime = None
+        else:
+            uptime = int(time.time() - self._started_at) if self._started_at else None
         return {"running": running, "uptime_sec": uptime}

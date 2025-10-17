@@ -3,6 +3,7 @@ from typing import Iterable
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
+from .telegram_session import create_telegram_session
 
 class ControlNotifier:
     """
@@ -16,7 +17,11 @@ class ControlNotifier:
     async def _send_async(self, text: str):
         if not self._token or not self._admin_ids:
             return
-        bot = Bot(self._token, default=DefaultBotProperties(parse_mode="HTML"))
+        bot = Bot(
+            self._token,
+            default=DefaultBotProperties(parse_mode="HTML"),
+            session=create_telegram_session(),
+        )
         try:
             for uid in self._admin_ids:
                 try:
