@@ -13,7 +13,7 @@ from .db import get_engine, get_sessionmaker, Base
 from .repositories import admins_bootstrap
 from .scheduler import setup_scheduler
 from .notifier import ControlNotifier
-from bot.handlers import router as main_router
+from bot.handlers import build_main_router
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class MainBotManager:
             default=DefaultBotProperties(parse_mode="HTML"),
         )
         self._dp = Dispatcher(storage=MemoryStorage())
-        self._dp.include_router(main_router)
+        self._dp.include_router(build_main_router())
 
         # Middleware для сессии БД
         @self._dp.update.outer_middleware()

@@ -23,7 +23,7 @@ from .keyboards import (
     product_detail_kb,
 )
 
-router = Router()
+__all__ = ["build_main_router", "register_main_handlers"]
 
 CONSENT_TEXT = (
     "Продолжая пользоваться данным ботом вы соглашаетесь на акционные рассылки, "
@@ -34,7 +34,6 @@ SUPPORT_PHONE = "39-16-16 (городской), +375(29)888-50-50 (МТС)"
 WIFI_GUIDE_URL = "https://garant.by/wp-content/uploads/pdf/pamyatka-polzovatelya-04-2022-tp-link-i-snr.pdf"
 
 # ====== Онбординг / старт ======
-@router.message(CommandStart())
 async def start(m: Message, session: AsyncSession):
     # регистрируем пользователя (без автопринятия)
     await get_or_create_user(session, m.from_user.id, m.from_user.username, m.from_user.full_name)
@@ -46,7 +45,6 @@ async def start(m: Message, session: AsyncSession):
         return
     await m.answer("Добро пожаловать! Выберите раздел:", reply_markup=main_menu_kb())
 
-@router.callback_query(F.data == "consent:accept")
 async def accept_consent(c: CallbackQuery, session: AsyncSession):
     await session.execute(update(User).where(User.tg_id == c.from_user.id).values(accepted_terms=True))
     await session.commit()
@@ -55,11 +53,9 @@ async def accept_consent(c: CallbackQuery, session: AsyncSession):
     await c.answer()
 
 # ====== Главное меню / навигация ======
-@router.message(F.text == "⬅️ В главное меню")
 async def go_home(m: Message):
     await m.answer("Главное меню:", reply_markup=main_menu_kb())
 
-@router.message(F.text == "🛠 Техническая помощь")
 async def support_root(m: Message):
     await m.answer("Выберите направление:", reply_markup=support_menu_kb())
 
@@ -84,24 +80,20 @@ async def _send_categories(message: Message | CallbackQuery, session: AsyncSessi
     return True
 
 
-@router.message(F.text == "🛍 Магазин")
 async def shop_entry(m: Message, session: AsyncSession):
     await _send_categories(m, session)
 
 
-@router.callback_query(F.data == "shop:cats")
 async def shop_categories_callback(c: CallbackQuery, session: AsyncSession):
     await _send_categories(c, session)
 
 
-@router.callback_query(F.data == "shop:menu")
 async def shop_menu_callback(c: CallbackQuery):
     await c.message.delete()
     await c.message.answer("Главное меню:", reply_markup=main_menu_kb())
     await c.answer()
 
 
-@router.callback_query(F.data.startswith("shop:cat:"))
 async def shop_show_category(c: CallbackQuery, session: AsyncSession):
     slug = c.data.split(":", 2)[2]
     title = await fetch_category_title(session, slug)
@@ -126,7 +118,6 @@ async def shop_show_category(c: CallbackQuery, session: AsyncSession):
     await c.answer()
 
 
-@router.callback_query(F.data.startswith("shop:prod:"))
 async def shop_show_product(c: CallbackQuery, session: AsyncSession):
     try:
         _, _, slug, prod_id = c.data.split(":", 3)
@@ -176,11 +167,9 @@ async def shop_show_product(c: CallbackQuery, session: AsyncSession):
     await c.answer()
 
 # ====== Техподдержка: телевидение ======
-@router.message(F.text == "📺 Проблемы с телевидением")
 async def tv_root(m: Message):
     await m.answer("Выберите проблему с телевидением:", reply_markup=tv_menu_kb())
 
-@router.message(F.text == "🚫 Не показывают каналы")
 async def tv_no_channels(m: Message, session: AsyncSession):
     txt = (
         "Проверьте, работают ли у вас остальные каналы или только определённые.\n"
@@ -190,7 +179,6 @@ async def tv_no_channels(m: Message, session: AsyncSession):
     await log_message(session, m.from_user.id, m.from_user.username, "ТВ: не показывают каналы")
     await m.answer(txt, reply_markup=main_menu_kb())
 
-@router.message(F.text == "🟡 Плохое качество передачи")
 async def tv_bad_quality(m: Message, session: AsyncSession):
     txt = (
         "Проверьте целостность кабеля и фиксацию в разъёме.\n"
@@ -200,11 +188,9 @@ async def tv_bad_quality(m: Message, session: AsyncSession):
     await m.answer(txt, reply_markup=main_menu_kb())
 
 # ====== Техподдержка: интернет ======
-@router.message(F.text == "🌐 Проблемы с интернетом")
 async def net_root(m: Message):
     await m.answer("Выберите проблему с интернетом:", reply_markup=net_menu_kb())
 
-@router.message(F.text == "📶 Нет интернета, Wi-Fi есть")
 async def net_no_internet_wifi_exists(m: Message, session: AsyncSession):
     txt = (
         "Достаньте роутер из розетки, подождите 1 минуту и подключите обратно.\n"
@@ -213,7 +199,6 @@ async def net_no_internet_wifi_exists(m: Message, session: AsyncSession):
     await log_message(session, m.from_user.id, m.from_user.username, "ИНТЕРНЕТ: нет интернета, Wi-Fi есть")
     await m.answer(txt, reply_markup=main_menu_kb())
 
-@router.message(F.text == "📴 Нет интернета и Wi-Fi-сети")
 async def net_no_internet_no_wifi(m: Message, session: AsyncSession):
     txt = (
         "Переверните роутер и найдите на наклейке надпись SSID.\n"
@@ -224,7 +209,6 @@ async def net_no_internet_no_wifi(m: Message, session: AsyncSession):
     await log_message(session, m.from_user.id, m.from_user.username, "ИНТЕРНЕТ: нет интернета и Wi-Fi")
     await m.answer(txt, disable_web_page_preview=False, reply_markup=main_menu_kb())
 
-@router.message(F.text == "🐢 Плохая скорость / большая задержка")
 async def net_slow(m: Message, session: AsyncSession):
     txt = (
         "Достаньте роутер из розетки, подождите 1 минуту и подключите обратно.\n"
@@ -234,7 +218,32 @@ async def net_slow(m: Message, session: AsyncSession):
     await m.answer(txt, reply_markup=main_menu_kb())
 
 # ====== Фолбэк: логирование прочих сообщений и возврат в меню ======
-@router.message()
 async def fallback(m: Message, session: AsyncSession):
     await log_message(session, m.from_user.id, m.from_user.username, m.text or "")
     await m.answer("Выберите раздел:", reply_markup=main_menu_kb())
+
+
+def register_main_handlers(router: Router) -> Router:
+    router.message.register(start, CommandStart())
+    router.callback_query.register(accept_consent, F.data == "consent:accept")
+    router.message.register(go_home, F.text == "⬅️ В главное меню")
+    router.message.register(support_root, F.text == "🛠 Техническая помощь")
+    router.message.register(shop_entry, F.text == "🛍 Магазин")
+    router.callback_query.register(shop_categories_callback, F.data == "shop:cats")
+    router.callback_query.register(shop_menu_callback, F.data == "shop:menu")
+    router.callback_query.register(shop_show_category, F.data.startswith("shop:cat:"))
+    router.callback_query.register(shop_show_product, F.data.startswith("shop:prod:"))
+    router.message.register(tv_root, F.text == "📺 Проблемы с телевидением")
+    router.message.register(tv_no_channels, F.text == "🚫 Не показывают каналы")
+    router.message.register(tv_bad_quality, F.text == "🟡 Плохое качество передачи")
+    router.message.register(net_root, F.text == "🌐 Проблемы с интернетом")
+    router.message.register(net_no_internet_wifi_exists, F.text == "📶 Нет интернета, Wi-Fi есть")
+    router.message.register(net_no_internet_no_wifi, F.text == "📴 Нет интернета и Wi-Fi-сети")
+    router.message.register(net_slow, F.text == "🐢 Плохая скорость / большая задержка")
+    router.message.register(fallback)
+    return router
+
+
+def build_main_router() -> Router:
+    router = Router()
+    return register_main_handlers(router)
