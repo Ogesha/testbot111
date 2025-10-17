@@ -41,10 +41,16 @@ class BroadcastConf:
     message_template: str
 
 @dataclass
+class StorageConf:
+    catalog_dir: str
+
+
+@dataclass
 class AppConfig:
     scrape: ScrapeConfig
     categories: List[CategoryConf]
     broadcast: BroadcastConf
+    storage: StorageConf
     bot_token: str
     parser_bot_token: str | None
     admin_ids: list[int]
@@ -84,6 +90,8 @@ def load_config(yaml_path: str = "config.yaml") -> AppConfig:
         else:
             raise ValueError("scrape.urls items must be string or mapping with 'url'")
 
+    storage_conf = y.get("storage", {})
+
     return AppConfig(
         scrape=ScrapeConfig(
             sources=sources,
@@ -94,6 +102,9 @@ def load_config(yaml_path: str = "config.yaml") -> AppConfig:
         broadcast=BroadcastConf(
             autosend_daily_time=y.get("broadcast", {}).get("autosend_daily_time"),
             message_template=y.get("broadcast", {}).get("message_template", "Новости: {count}")
+        ),
+        storage=StorageConf(
+            catalog_dir=storage_conf.get("catalog_dir", "storage/catalog"),
         ),
         bot_token=bot_token,
         parser_bot_token=parser_bot_token,

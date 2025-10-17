@@ -1,82 +1,37 @@
-from sqlalchemy import Table, Column, Integer, String, MetaData, text
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text as sa_text
+from __future__ import annotations
+
 import re
 
-_meta = MetaData()
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text as sa_text
 
 
-def _slugify(name: str) -> str:
-    s = name.lower()
-    s = re.sub(r"[^a-z0-9а-яё_]+", "_", s, flags=re.IGNORECASE)
-    s = re.sub(r"_+", "_", s).strip("_")
-    if not s:
-        s = "cat"
-    return s
+def slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9а-яё]+", "_", name.lower(), flags=re.IGNORECASE)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "cat"
 
 
-def _table_name_for_category(cat_name: str) -> str:
-    return f"products_{_slugify(cat_name)}"
+async def _drop_legacy_tables(session: AsyncSession) -> None:
+    """Удаляем устаревшие таблицы вида products_* (по категориям)."""
 
-
-def _build_product_table(cat_name: str) -> Table:
-    return Table(
-        _table_name_for_category(cat_name),
-        _meta,
-        Column("id", Integer, primary_key=True),
-        Column("title", String(512), nullable=False),
-        Column("price", String(128), nullable=True),
-        Column("url", String(1024), nullable=True),
-        Column("image_url", String(1024), nullable=True),
-        Column("created_at", String(64), server_default=text("now()")),
-    )
-
-
-def CreateTableSQL(tbl: Table) -> str:
-    cols = []
-    for c in tbl.columns:
-        if c.primary_key:
-            cols.append(f'{c.name} SERIAL PRIMARY KEY')
-        elif c.name == "created_at":
-            cols.append(f'{c.name} TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()')
-        else:
-            if isinstance(c.type, String):
-                ln = c.type.length or 255
-                cols.append(f'{c.name} VARCHAR({ln})')
-            elif isinstance(c.type, Integer):
-                cols.append(f'{c.name} INTEGER')
-            else:
-                cols.append(f'{c.name} TEXT')
-    sql = f'CREATE TABLE IF NOT EXISTS "{tbl.name}" (\n  ' + ",\n  ".join(cols) + "\n);"
-    return sql
-
-
-async def list_existing_product_tables(session: AsyncSession) -> set[str]:
-    q = sa_text(
-        """
+    res = await session.execute(
+        sa_text(
+            """
         SELECT tablename FROM pg_tables
-        WHERE schemaname = current_schema() AND tablename LIKE 'products_%';
+        WHERE schemaname = current_schema()
+          AND tablename LIKE 'products_%';
         """
+        )
     )
-    res = await session.execute(q)
-    return set(r[0] for r in res.fetchall())
-
-
-async def drop_table(session: AsyncSession, table_name: str):
-    await session.execute(sa_text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE;'))
+    for (table_name,) in res.fetchall():
+        await session.execute(sa_text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE;'))
 
 
 async def replace_all_categories_and_products(session: AsyncSession, categorized: dict[str, list[dict]]):
-    """
-    Полная замена каталога:
-    - удаляем все старые product-таблицы,
-    - создаём новые по категориям,
-    - заливаем свежие товары.
-    """
+    """Пересобирает таблицы категорий и товаров заново."""
 
-    existing = await list_existing_product_tables(session)
-    for t in existing:
-        await drop_table(session, t)
+    await _drop_legacy_tables(session)
 
     await session.execute(
         sa_text(
@@ -89,34 +44,53 @@ async def replace_all_categories_and_products(session: AsyncSession, categorized
         """
         )
     )
+
+    await session.execute(
+        sa_text(
+            """
+        CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            category_slug TEXT NOT NULL REFERENCES product_categories(slug) ON DELETE CASCADE,
+            category_title TEXT NOT NULL,
+            title TEXT NOT NULL,
+            price TEXT,
+            url TEXT,
+            image_path TEXT,
+            image_url TEXT,
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+        );
+        """
+        )
+    )
+
+    await session.execute(sa_text("TRUNCATE TABLE products;"))
     await session.execute(sa_text("TRUNCATE TABLE product_categories;"))
 
-    # При повторных обновлениях SQLAlchemy кэширует таблицы в MetaData,
-    # поэтому перед пересозданием очищаем метаданные.
-    _meta.clear()
-
-    for position, (cat, items) in enumerate(categorized.items(), start=1):
-        tbl = _build_product_table(cat)
-        await session.execute(sa_text(CreateTableSQL(tbl)))
-        slug = tbl.name.removeprefix("products_")
+    for position, (category_title, items) in enumerate(categorized.items(), start=1):
+        slug = slugify(category_title)
         await session.execute(
             sa_text(
                 "INSERT INTO product_categories (slug, title, position) VALUES (:slug, :title, :pos)"
             ),
-            {"slug": slug, "title": cat, "pos": position},
+            {"slug": slug, "title": category_title, "pos": position},
         )
-        tname = tbl.name
-        for it in items:
+
+        for item in items:
             await session.execute(
                 sa_text(
-                    f'INSERT INTO "{tname}" (title, price, url, image_url) '
-                    "VALUES (:title, :price, :url, :image)"
+                    """
+                INSERT INTO products (category_slug, category_title, title, price, url, image_path, image_url)
+                VALUES (:slug, :category_title, :title, :price, :url, :image_path, :image_url)
+                """
                 ),
                 {
-                    "title": it.get("title", ""),
-                    "price": it.get("price", ""),
-                    "url": it.get("url"),
-                    "image": it.get("image_url"),
+                    "slug": slug,
+                    "category_title": category_title,
+                    "title": item.get("title", ""),
+                    "price": item.get("price"),
+                    "url": item.get("url"),
+                    "image_path": item.get("image_path"),
+                    "image_url": item.get("image_url"),
                 },
             )
 
@@ -125,37 +99,47 @@ async def replace_all_categories_and_products(session: AsyncSession, categorized
 
 async def fetch_categories_with_counts(session: AsyncSession) -> list[dict]:
     res = await session.execute(
-        sa_text("SELECT slug, title FROM product_categories ORDER BY position")
+        sa_text(
+            """
+        SELECT c.slug, c.title, COUNT(p.id) AS count
+        FROM product_categories c
+        LEFT JOIN products p ON p.category_slug = c.slug
+        GROUP BY c.slug, c.title, c.position
+        ORDER BY c.position;
+        """
+        )
     )
-    rows = res.fetchall()
-    out: list[dict] = []
-    for slug, title in rows:
-        tname = f"products_{slug}"
-        cnt_res = await session.execute(sa_text(f'SELECT COUNT(*) FROM "{tname}"'))
-        cnt = cnt_res.scalar() or 0
-        out.append({"slug": slug, "title": title, "count": cnt})
-    return out
+    return [
+        {"slug": row[0], "title": row[1], "count": row[2]}
+        for row in res.fetchall()
+    ]
 
 
-async def fetch_products_for_category(session: AsyncSession, cat_slug: str, limit: int = 20) -> list[dict]:
-    tname = f"products_{cat_slug}"
+async def fetch_products_for_category(
+    session: AsyncSession, cat_slug: str, limit: int = 20
+) -> list[dict]:
     res = await session.execute(
         sa_text(
-            f'SELECT id, title, price, url, image_url FROM "{tname}" '
-            "ORDER BY id DESC LIMIT :lim"
+            """
+        SELECT id, title, price, url, image_path, image_url
+        FROM products
+        WHERE category_slug = :slug
+        ORDER BY id DESC
+        LIMIT :limit;
+        """
         ),
-        {"lim": limit},
+        {"slug": cat_slug, "limit": limit},
     )
-    rows = res.fetchall()
     return [
         {
-            "id": r[0],
-            "title": r[1],
-            "price": r[2],
-            "url": r[3],
-            "image_url": r[4],
+            "id": row[0],
+            "title": row[1],
+            "price": row[2],
+            "url": row[3],
+            "image_path": row[4],
+            "image_url": row[5],
         }
-        for r in rows
+        for row in res.fetchall()
     ]
 
 
@@ -168,13 +152,15 @@ async def fetch_category_title(session: AsyncSession, slug: str) -> str | None:
 
 
 async def fetch_product(session: AsyncSession, slug: str, product_id: int) -> dict | None:
-    tname = f"products_{slug}"
     res = await session.execute(
         sa_text(
-            f'SELECT id, title, price, url, image_url FROM "{tname}" '
-            "WHERE id = :pid"
+            """
+        SELECT id, title, price, url, image_path, image_url
+        FROM products
+        WHERE category_slug = :slug AND id = :pid;
+        """
         ),
-        {"pid": product_id},
+        {"slug": slug, "pid": product_id},
     )
     row = res.fetchone()
     if not row:
@@ -184,5 +170,6 @@ async def fetch_product(session: AsyncSession, slug: str, product_id: int) -> di
         "title": row[1],
         "price": row[2],
         "url": row[3],
-        "image_url": row[4],
+        "image_path": row[4],
+        "image_url": row[5],
     }

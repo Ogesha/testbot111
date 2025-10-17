@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
@@ -148,16 +148,30 @@ async def shop_show_product(c: CallbackQuery, session: AsyncSession):
     caption = "\n".join(text_parts)
     keyboard = product_detail_kb(slug, product)
 
+    image_path = product.get("image_path")
     image_url = product.get("image_url")
 
-    if image_url:
-        await c.message.answer_photo(
-            image_url,
-            caption=caption,
-            reply_markup=keyboard,
-        )
-    else:
-        await c.message.answer(caption, reply_markup=keyboard)
+    sent = False
+    if image_path:
+        try:
+            await c.message.answer_photo(
+                FSInputFile(image_path),
+                caption=caption,
+                reply_markup=keyboard,
+            )
+            sent = True
+        except FileNotFoundError:
+            sent = False
+
+    if not sent:
+        if image_url:
+            await c.message.answer_photo(
+                image_url,
+                caption=caption,
+                reply_markup=keyboard,
+            )
+        else:
+            await c.message.answer(caption, reply_markup=keyboard)
 
     await c.answer()
 

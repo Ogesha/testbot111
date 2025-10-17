@@ -82,3 +82,6 @@ categories:
 broadcast:
   autosend_daily_time: null
   message_template: "Каталог обновлён: {count} товаров"
+
+storage:
+  catalog_dir: "storage/catalog"
